@@ -87,18 +87,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Pre-deployment checks
+        shell: powershell
+        run: |
+          Write-Host "🔍 Pre-deployment checks" -ForegroundColor Cyan
+          Write-Host "Image: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:latest"
+          Write-Host "`n📊 Minikube status:"
+          minikube status
+          Write-Host "`n🖥️ Kubernetes nodes:"
+          kubectl get nodes
+
       - name: Create namespace
         shell: powershell
         run: |
           kubectl apply -f k8s/namespace.yml
 
-      - name: Create ConfigMap (if needed)
+      - name: Create ConfigMap
         shell: powershell
         continue-on-error: true
         run: |
           kubectl create configmap app-config --from-literal=NODE_ENV=production --from-literal=PORT=3000 -n ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Create Secret (if needed)
+      - name: Create Secret
         shell: powershell
         continue-on-error: true
         run: |
@@ -110,26 +120,56 @@ jobs:
           kubectl apply -f k8s/deployment.yaml -n ${{ env.K8S_NAMESPACE }}
           kubectl apply -f k8s/service.yaml -n ${{ env.K8S_NAMESPACE }}
 
-      - name: Update deployment image
+      - name: Force pull latest image and restart
         shell: powershell
         run: |
-          kubectl set image deployment/rest-api-deployment rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} -n ${{ env.K8S_NAMESPACE }}
+          # Forcer le redémarrage pour pull la nouvelle image
+          kubectl rollout restart deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }}
 
       - name: Wait for deployment
         shell: powershell
+        timeout-minutes: 10
         run: |
-          kubectl rollout status deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          Write-Host "⏳ Waiting for deployment to be ready..." -ForegroundColor Yellow
+          
+          $maxAttempts = 60
+          $attempt = 0
+          
+          while ($attempt -lt $maxAttempts) {
+            $ready = kubectl get deployment rest-api-deployment -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.readyReplicas}' 2>$null
+            $desired = kubectl get deployment rest-api-deployment -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.spec.replicas}' 2>$null
+            
+            if (-not $ready) { $ready = 0 }
+            if (-not $desired) { $desired = 0 }
+            
+            Write-Host "[$attempt/$maxAttempts] Ready: $ready / Desired: $desired"
+            
+            if ($ready -eq $desired -and $ready -gt 0) {
+              Write-Host "✅ Deployment is ready!" -ForegroundColor Green
+              exit 0
+            }
+            
+            if ($attempt % 6 -eq 0) {
+              Write-Host "`nCurrent pods:" -ForegroundColor Cyan
+              kubectl get pods -n ${{ env.K8S_NAMESPACE }}
+            }
+            
+            Start-Sleep -Seconds 10
+            $attempt++
+          }
+          
+          Write-Host "❌ Deployment timeout!" -ForegroundColor Red
+          kubectl describe pods -n ${{ env.K8S_NAMESPACE }}
+          exit 1
 
       - name: Verify deployment
         shell: powershell
         run: |
-          Write-Host "📦 Pods:" -ForegroundColor Green
-          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
-          Write-Host ""
-          Write-Host "🌐 Services:" -ForegroundColor Green
+          Write-Host "`n📦 Pods:" -ForegroundColor Green
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -o wide
+          Write-Host "`n🌐 Services:" -ForegroundColor Green
           kubectl get services -n ${{ env.K8S_NAMESPACE }}
-          Write-Host ""
-          Write-Host "🔗 Access URL:" -ForegroundColor Cyan
+          Write-Host "`n🔗 Access URL:" -ForegroundColor Cyan
           minikube service rest-api-service -n ${{ env.K8S_NAMESPACE }} --url
 
   # Job 4: Notify
@@ -148,3 +188,8 @@ jobs:
           echo "🐳 Build: ${{ needs.build.result }}"
           echo "🚢 Deploy: ${{ needs.deploy.result }}"
           echo "================================"
+          if [[ "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "✨ All stages completed successfully!"
+          else
+            echo "❌ Some stages failed"
+          fi
