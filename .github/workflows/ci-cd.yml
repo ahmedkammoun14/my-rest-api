@@ -107,8 +107,8 @@ jobs:
       - name: Apply Kubernetes manifests
         shell: powershell
         run: |
-          kubectl apply -f k8s/deployment.yml -n ${{ env.K8S_NAMESPACE }}
-          kubectl apply -f k8s/service.yml -n ${{ env.K8S_NAMESPACE }}
+          kubectl apply -f k8s/deployment.yaml -n ${{ env.K8S_NAMESPACE }}
+          kubectl apply -f k8s/service.yaml -n ${{ env.K8S_NAMESPACE }}
 
       - name: Update deployment image
         shell: powershell
