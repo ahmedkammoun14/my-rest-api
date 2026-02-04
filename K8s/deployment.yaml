@@ -2,10 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rest-api-deployment
+  namespace: production  # ✅ AJOUTÉ
   labels:
     app: rest-api
 spec:
-  replicas: 3
+  replicas: 2  # ✅ Réduit à 2 pour économiser les ressources
   selector:
     matchLabels:
       app: rest-api
@@ -17,15 +18,17 @@ spec:
       containers:
       - name: rest-api
         image: ahmedkammoun14/my-rest-api:latest
-        imagePullPolicy: Never  # Use local image for Minikube
+        imagePullPolicy: Always  # ✅ CHANGÉ : télécharge depuis Docker Hub
         ports:
         - containerPort: 3000
-        envFrom:
-        - configMapRef:
-            name: app-config
         env:
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: db-secret
-              key: password
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        # ✅ Commenté car optionnel
+        # - name: DB_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: db-secret
+        #       key: password

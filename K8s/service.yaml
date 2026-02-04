@@ -6,8 +6,9 @@ metadata:
 spec:
   selector:
     app: rest-api
-  type: LoadBalancer
+  type: NodePort  # ✅ CHANGÉ : LoadBalancer ne fonctionne pas bien avec Minikube
   ports:
   - protocol: TCP
     port: 80
     targetPort: 3000
+    nodePort: 30080  # ✅ AJOUTÉ : port fixe pour accès facile

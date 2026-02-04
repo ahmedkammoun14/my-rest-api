@@ -77,59 +77,83 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Job 3: Deploy to Kubernetes (désactivé pour l'instant)
+  # Job 3: Deploy to Minikube (Self-hosted runner)
   deploy:
     needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'  # ← Changé de 'false' à cette condition
+    runs-on: self-hosted  # ✅ CHANGEMENT ICI : utilise votre machine Windows
+    if: github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Configure kubectl
+      - name: Create namespace
+        shell: pwsh
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          kubectl apply -f k8s/namespace.yml
 
-      - name: Create namespace if not exists
+      - name: Create ConfigMap (if needed)
+        shell: pwsh
+        continue-on-error: true
         run: |
-          kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap app-config `
+            --from-literal=NODE_ENV=production `
+            --from-literal=PORT=3000 `
+            -n ${{ env.K8S_NAMESPACE }} `
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy to Kubernetes
+      - name: Create Secret (if needed)
+        shell: pwsh
+        continue-on-error: true
         run: |
-          # Appliquer les manifestes
-          kubectl apply -f k8s/ -n ${{ env.K8S_NAMESPACE }}
-          
-          # Mettre à jour l'image
-          kubectl set image deployment/rest-api-deployment \
-            rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} \
+          kubectl create secret generic db-secret `
+            --from-literal=password=your-secure-password `
+            -n ${{ env.K8S_NAMESPACE }} `
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply Kubernetes manifests
+        shell: pwsh
+        run: |
+          kubectl apply -f k8s/deployment.yml -n ${{ env.K8S_NAMESPACE }}
+          kubectl apply -f k8s/service.yml -n ${{ env.K8S_NAMESPACE }}
+
+      - name: Update deployment image
+        shell: pwsh
+        run: |
+          kubectl set image deployment/rest-api-deployment `
+            rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} `
             -n ${{ env.K8S_NAMESPACE }}
-          
-          # Attendre le déploiement
+
+      - name: Wait for deployment
+        shell: pwsh
+        run: |
           kubectl rollout status deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }} --timeout=5m
 
       - name: Verify deployment
+        shell: pwsh
         run: |
-          echo "📦 Pods:"
+          Write-Host "📦 Pods:" -ForegroundColor Green
           kubectl get pods -n ${{ env.K8S_NAMESPACE }}
-          echo "🌐 Services:"
+          Write-Host ""
+          Write-Host "🌐 Services:" -ForegroundColor Green
           kubectl get services -n ${{ env.K8S_NAMESPACE }}
+          Write-Host ""
+          Write-Host "🔗 Access URL:" -ForegroundColor Cyan
+          minikube service rest-api-service -n ${{ env.K8S_NAMESPACE }} --url
 
-  # Job 4: Notify on completion
+  # Job 4: Notify
   notify:
     needs: [test, build, deploy]
     runs-on: ubuntu-latest
     if: always()
     
     steps:
-      - name: Send notification
+      - name: Pipeline Summary
         run: |
+          echo "================================"
+          echo "   🚀 CI/CD Pipeline Summary"
+          echo "================================"
           echo "✅ Tests: ${{ needs.test.result }}"
           echo "🐳 Build: ${{ needs.build.result }}"
-          echo "🚀 Deploy: ${{ needs.deploy.result }}"
-          echo "Pipeline completed!"
+          echo "🚢 Deploy: ${{ needs.deploy.result }}"
+          echo "================================"
