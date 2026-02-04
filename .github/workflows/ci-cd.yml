@@ -81,34 +81,48 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    if: false
+    if: github.ref == 'refs/heads/main'  # ← Changé de 'false' à cette condition
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
       - name: Configure kubectl
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy to Kubernetes
         run: |
+          # Appliquer les manifestes
+          kubectl apply -f k8s/ -n ${{ env.K8S_NAMESPACE }}
+          
+          # Mettre à jour l'image
           kubectl set image deployment/rest-api-deployment \
             rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} \
             -n ${{ env.K8S_NAMESPACE }}
           
-          kubectl rollout status deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }}
+          # Attendre le déploiement
+          kubectl rollout status deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }} --timeout=5m
 
       - name: Verify deployment
         run: |
+          echo "📦 Pods:"
           kubectl get pods -n ${{ env.K8S_NAMESPACE }}
+          echo "🌐 Services:"
           kubectl get services -n ${{ env.K8S_NAMESPACE }}
 
   # Job 4: Notify on completion
   notify:
-    needs: [test, build]
+    needs: [test, build, deploy]
     runs-on: ubuntu-latest
     if: always()
     
@@ -117,4 +131,5 @@ jobs:
         run: |
           echo "✅ Tests: ${{ needs.test.result }}"
           echo "🐳 Build: ${{ needs.build.result }}"
+          echo "🚀 Deploy: ${{ needs.deploy.result }}"
           echo "Pipeline completed!"

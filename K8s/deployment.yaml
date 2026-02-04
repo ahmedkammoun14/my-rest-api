@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: rest-api
-        image: my-rest-api:latest
+        image: ahmedkammoun14/my-rest-api:latest
         imagePullPolicy: Never  # Use local image for Minikube
         ports:
         - containerPort: 3000
