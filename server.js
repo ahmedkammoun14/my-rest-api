@@ -102,6 +102,6 @@ app.delete('/api/users/:id', async (req, res) => {
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log('CI/CD pipeline is active!+Kubernetes deployment is successful!');
+    console.log('CI/CD pipeline is active!+Kubernetes deployment is successful! + sans jenkins');
 });
 module.exports = app;
