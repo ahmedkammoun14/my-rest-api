@@ -77,10 +77,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Job 3: Deploy to Minikube (Self-hosted runner)
+  # Job 3: Deploy to Minikube
   deploy:
     needs: build
-    runs-on: self-hosted  # ✅ CHANGEMENT ICI : utilise votre machine Windows
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     
     steps:
@@ -88,49 +88,40 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Create namespace
-        shell: pwsh
+        shell: powershell
         run: |
           kubectl apply -f k8s/namespace.yml
 
       - name: Create ConfigMap (if needed)
-        shell: pwsh
+        shell: powershell
         continue-on-error: true
         run: |
-          kubectl create configmap app-config `
-            --from-literal=NODE_ENV=production `
-            --from-literal=PORT=3000 `
-            -n ${{ env.K8S_NAMESPACE }} `
-            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap app-config --from-literal=NODE_ENV=production --from-literal=PORT=3000 -n ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create Secret (if needed)
-        shell: pwsh
+        shell: powershell
         continue-on-error: true
         run: |
-          kubectl create secret generic db-secret `
-            --from-literal=password=your-secure-password `
-            -n ${{ env.K8S_NAMESPACE }} `
-            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic db-secret --from-literal=password=your-secure-password -n ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply Kubernetes manifests
-        shell: pwsh
+        shell: powershell
         run: |
           kubectl apply -f k8s/deployment.yml -n ${{ env.K8S_NAMESPACE }}
           kubectl apply -f k8s/service.yml -n ${{ env.K8S_NAMESPACE }}
 
       - name: Update deployment image
-        shell: pwsh
+        shell: powershell
         run: |
-          kubectl set image deployment/rest-api-deployment `
-            rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} `
-            -n ${{ env.K8S_NAMESPACE }}
+          kubectl set image deployment/rest-api-deployment rest-api=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:sha-${{ github.sha }} -n ${{ env.K8S_NAMESPACE }}
 
       - name: Wait for deployment
-        shell: pwsh
+        shell: powershell
         run: |
           kubectl rollout status deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }} --timeout=5m
 
       - name: Verify deployment
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "📦 Pods:" -ForegroundColor Green
           kubectl get pods -n ${{ env.K8S_NAMESPACE }}
