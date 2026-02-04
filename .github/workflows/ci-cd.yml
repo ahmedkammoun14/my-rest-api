@@ -165,12 +165,23 @@ jobs:
       - name: Verify deployment
         shell: powershell
         run: |
-          Write-Host "`n📦 Pods:" -ForegroundColor Green
+          Write-Host "`n================================" -ForegroundColor Cyan
+          Write-Host "   ✅ Deployment Successful!" -ForegroundColor Green
+          Write-Host "================================" -ForegroundColor Cyan
+          
+          Write-Host "`n📦 Pods:" -ForegroundColor Yellow
           kubectl get pods -n ${{ env.K8S_NAMESPACE }} -o wide
-          Write-Host "`n🌐 Services:" -ForegroundColor Green
+          
+          Write-Host "`n🌐 Services:" -ForegroundColor Yellow
           kubectl get services -n ${{ env.K8S_NAMESPACE }}
-          Write-Host "`n🔗 Access URL:" -ForegroundColor Cyan
-          minikube service rest-api-service -n ${{ env.K8S_NAMESPACE }} --url
+          
+          Write-Host "`n🔗 Access Instructions:" -ForegroundColor Yellow
+          Write-Host "Run this command locally to access the service:"
+          Write-Host "  minikube service rest-api-service -n production" -ForegroundColor Cyan
+          
+          $nodePort = kubectl get service rest-api-service -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}'
+          $minikubeIp = minikube ip
+          Write-Host "`nOr access directly at: http://$minikubeIp:$nodePort" -ForegroundColor Cyan
 
   # Job 4: Notify
   notify:
