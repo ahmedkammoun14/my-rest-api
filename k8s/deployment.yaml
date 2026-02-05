@@ -2,11 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rest-api-deployment
-  namespace: production  # ✅ AJOUTÉ
+  namespace: production
   labels:
     app: rest-api
 spec:
-  replicas: 2  # ✅ Réduit à 2 pour économiser les ressources
+  replicas: 2
   selector:
     matchLabels:
       app: rest-api
@@ -18,7 +18,7 @@ spec:
       containers:
       - name: rest-api
         image: ahmedkammoun14/my-rest-api:latest
-        imagePullPolicy: Always  # ✅ CHANGÉ : télécharge depuis Docker Hub
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
         env:
@@ -26,9 +26,17 @@ spec:
           value: "production"
         - name: PORT
           value: "3000"
-        # ✅ Commenté car optionnel
-        # - name: DB_PASSWORD
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: db-secret
-        #       key: password
+        # ✅ AJOUTER les variables de connexion DB
+        - name: DB_HOST
+          value: "postgres-service"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "mydb"
+        - name: DB_USER
+          value: "postgres"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password

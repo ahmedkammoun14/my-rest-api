@@ -96,37 +96,48 @@ jobs:
 
       - name: Create namespace
         shell: powershell
-        run: |
-          kubectl apply -f k8s/namespace.yml
-
-      - name: Create ConfigMap
-        shell: powershell
         continue-on-error: true
         run: |
-          kubectl create configmap app-config --from-literal=NODE_ENV=production --from-literal=PORT=3000 -n ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/namespace.yaml
 
-      - name: Create Secret
-        shell: powershell
-        continue-on-error: true
-        run: |
-          kubectl create secret generic db-secret --from-literal=password=your-secure-password -n ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Apply Kubernetes manifests
+      - name: Apply Secrets
         shell: powershell
         run: |
-          kubectl apply -f k8s/deployment.yaml -n ${{ env.K8S_NAMESPACE }}
-          kubectl apply -f k8s/service.yaml -n ${{ env.K8S_NAMESPACE }}
+          kubectl apply -f k8s/secret.yaml
+
+      - name: Apply ConfigMaps
+        shell: powershell
+        run: |
+          kubectl apply -f k8s/configmap.yaml
+
+      - name: Apply PostgreSQL PVC
+        shell: powershell
+        run: |
+          kubectl apply -f k8s/postgres-pvc.yaml
+
+      - name: Deploy PostgreSQL
+        shell: powershell
+        run: |
+          kubectl apply -f k8s/postgres-deployment.yaml
+          Write-Host "⏳ Waiting for PostgreSQL to be ready..."
+          kubectl wait --for=condition=ready pod -l app=postgres -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+
+      - name: Deploy REST API
+        shell: powershell
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
 
       - name: Force pull latest image and restart
         shell: powershell
         run: |
           kubectl rollout restart deployment/rest-api-deployment -n ${{ env.K8S_NAMESPACE }}
 
-      - name: Wait for deployment
+      - name: Wait for REST API deployment
         shell: powershell
         timeout-minutes: 10
         run: |
-          Write-Host "⏳ Waiting for deployment to be ready..." -ForegroundColor Yellow
+          Write-Host "⏳ Waiting for REST API to be ready..." -ForegroundColor Yellow
           
           $maxAttempts = 60
           $attempt = 0
@@ -157,6 +168,32 @@ jobs:
           Write-Host "❌ Deployment timeout!" -ForegroundColor Red
           kubectl describe pods -n ${{ env.K8S_NAMESPACE }}
           exit 1
+
+      - name: Run smoke tests
+        shell: powershell
+        run: |
+          Write-Host "`n🧪 Running smoke tests..." -ForegroundColor Yellow
+          
+          $nodePort = kubectl get service rest-api-service -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}'
+          $minikubeIp = minikube ip
+          $url = "http://${minikubeIp}:${nodePort}/api/users"
+          
+          Write-Host "Testing: $url"
+          
+          try {
+            $response = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec 10
+            if ($response.StatusCode -eq 200) {
+              Write-Host "✅ GET /api/users - OK" -ForegroundColor Green
+            } else {
+              Write-Host "❌ GET /api/users - Status: $($response.StatusCode)" -ForegroundColor Red
+              exit 1
+            }
+          } catch {
+            Write-Host "❌ GET /api/users - Error: $_" -ForegroundColor Red
+            exit 1
+          }
+          
+          Write-Host "✅ All smoke tests passed!" -ForegroundColor Green
 
       - name: Verify deployment
         shell: powershell
