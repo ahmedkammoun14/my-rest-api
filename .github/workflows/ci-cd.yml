@@ -100,10 +100,13 @@ jobs:
         run: |
           kubectl apply -f k8s/namespace.yaml
 
-      - name: Apply Secrets
+      - name: Create Secret from GitHub Secrets
         shell: powershell
         run: |
-          kubectl apply -f k8s/secret.yaml
+          kubectl create secret generic db-secret `
+            --from-literal=password="${{ secrets.DB_PASSWORD }}" `
+            -n ${{ env.K8S_NAMESPACE }} `
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply ConfigMaps
         shell: powershell
