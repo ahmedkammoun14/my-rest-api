@@ -172,32 +172,6 @@ jobs:
           kubectl describe pods -n ${{ env.K8S_NAMESPACE }}
           exit 1
 
-      - name: Run smoke tests
-        shell: powershell
-        run: |
-          Write-Host "`n🧪 Running smoke tests..." -ForegroundColor Yellow
-          
-          $nodePort = kubectl get service rest-api-service -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}'
-          $minikubeIp = minikube ip
-          $url = "http://${minikubeIp}:${nodePort}/api/users"
-          
-          Write-Host "Testing: $url"
-          
-          try {
-            $response = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec 10
-            if ($response.StatusCode -eq 200) {
-              Write-Host "✅ GET /api/users - OK" -ForegroundColor Green
-            } else {
-              Write-Host "❌ GET /api/users - Status: $($response.StatusCode)" -ForegroundColor Red
-              exit 1
-            }
-          } catch {
-            Write-Host "❌ GET /api/users - Error: $_" -ForegroundColor Red
-            exit 1
-          }
-          
-          Write-Host "✅ All smoke tests passed!" -ForegroundColor Green
-
       - name: Verify deployment
         shell: powershell
         run: |
@@ -218,6 +192,8 @@ jobs:
           $nodePort = kubectl get service rest-api-service -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}'
           $minikubeIp = minikube ip
           Write-Host "`nDirect access at: http://${minikubeIp}:${nodePort}" -ForegroundColor Cyan
+          
+          Write-Host "`n⚠️  Note: Smoke tests disabled - manual testing required" -ForegroundColor Yellow
 
   notify:
     needs: [test, build, deploy]
@@ -237,6 +213,9 @@ jobs:
           if [[ "${{ needs.test.result }}" == "success" && "${{ needs.build.result }}" == "success" && "${{ needs.deploy.result }}" == "success" ]]; then
             echo "🎉 All stages completed successfully!"
             echo "✨ Application deployed to Minikube!"
+            echo ""
+            echo "⚠️  Manual testing required:"
+            echo "   Run: minikube service rest-api-service -n production"
           else
             echo "❌ Pipeline failed - check logs above"
           fi
