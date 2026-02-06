@@ -103,5 +103,6 @@ app.delete('/api/users/:id', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log('CI/CD pipeline is active!+Kubernetes deployment is successful! + self-hosted runner + sans jenkins');
+     console.log('Github Actions workflow is working! + Docker containerization is successful! + Helm charts are deployed successfully!');
 });
 module.exports = app;
