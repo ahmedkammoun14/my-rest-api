@@ -2,122 +2,144 @@ pipeline {
     agent any
     
     environment {
+        DOCKER_HUB_USER = 'ahmedkammoun14'
         DOCKER_IMAGE = 'my-rest-api'
-        DOCKER_HUB_USERNAME = 'ahmedkammoun14'
+        DOCKER_TAG = "${BUILD_NUMBER}"
         K8S_NAMESPACE = 'production'
-    }
-    
-    tools {
-        nodejs 'NodeJS 18'
+        DOCKER_CREDENTIALS_ID = 'docker-hub-credentials'
+        KUBECONFIG_CREDENTIALS_ID = 'kubeconfig'
     }
     
     stages {
-        stage('Checkout') {
+        stage('🔍 Checkout Code') {
             steps {
+                echo 'Cloning repository...'
                 checkout scm
             }
         }
         
-        stage('Install Dependencies') {
+        stage('📦 Install Dependencies') {
             steps {
-                bat 'npm ci'
+                echo 'Installing npm dependencies...'
+                sh 'npm ci'
             }
         }
         
-        stage('Lint') {
+        stage('🔎 Run Linter') {
             steps {
-                bat 'npm run lint'
+                echo 'Running ESLint...'
+                sh 'npm run lint'
             }
         }
         
-        stage('Test') {
+        stage('🧪 Run Tests') {
             steps {
-                bat 'npm test'
+                echo 'Running Jest tests...'
+                sh 'npm test'
             }
         }
         
-        stage('Security Audit') {
+        stage('🔒 Security Audit') {
             steps {
-                bat 'npm audit --audit-level=moderate || exit 0'
+                echo 'Running npm security audit...'
+                sh 'npm audit --audit-level=moderate || true'
             }
         }
         
-        stage('Build Docker Image') {
+        stage('🐳 Build Docker Image') {
             when {
                 branch 'main'
             }
             steps {
-                script {
-                    docker.build("${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:latest")
-                }
+                echo 'Building Docker image...'
+                sh """
+                    docker build -t ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${DOCKER_TAG} .
+                    docker tag ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
+                """
             }
         }
         
-        stage('Push to Docker Hub') {
+        stage('📤 Push to Docker Hub') {
             when {
                 branch 'main'
             }
             steps {
+                echo 'Pushing images to Docker Hub...'
                 script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'docker-hub-credentials') {
-                        docker.image("${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:latest").push()
-                        docker.image("${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE}:latest").push("${env.BUILD_NUMBER}")
+                    withCredentials([usernamePassword(
+                        credentialsId: DOCKER_CREDENTIALS_ID,
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                            docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${DOCKER_TAG}
+                            docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
+                            docker logout
+                        '''
                     }
                 }
             }
         }
         
-        stage('Deploy to Kubernetes') {
+        stage('☸️ Deploy to Kubernetes') {
             when {
                 branch 'main'
             }
             steps {
+                echo 'Deploying to Kubernetes...'
                 script {
-                    withKubeConfig([credentialsId: 'kubeconfig-jenkins.yaml']) {
-                        // Create namespace
-                        bat 'kubectl apply -f k8s/namespace.yaml || exit 0'
-                        
-                        // Create secret
-                        withCredentials([string(credentialsId: 'db-password', variable: 'DB_PASSWORD')]) {
-                            bat """
-                                kubectl create secret generic db-secret ^
-                                --from-literal=password=%DB_PASSWORD% ^
-                                -n %K8S_NAMESPACE% ^
+                    withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
+                        sh '''
+                            export KUBECONFIG=${KUBECONFIG_FILE}
+                            
+                            kubectl apply -f k8s/namespace.yaml
+                            kubectl apply -f k8s/configmap.yaml
+                            
+                            kubectl create secret generic db-secret \
+                                --from-literal=password=password123 \
+                                -n ${K8S_NAMESPACE} \
                                 --dry-run=client -o yaml | kubectl apply -f -
-                            """
-                        }
-                        
-                        // Apply configs
-                        bat 'kubectl apply -f k8s/configmap.yaml'
-                        bat 'kubectl apply -f k8s/postgres-pvc.yaml'
-                        bat 'kubectl apply -f k8s/postgres-deployment.yaml'
-                        
-                        // Wait for PostgreSQL
-                        bat 'kubectl wait --for=condition=ready pod -l app=postgres -n %K8S_NAMESPACE% --timeout=120s'
-                        
-                        // Deploy REST API
-                        bat 'kubectl apply -f k8s/deployment.yaml'
-                        bat 'kubectl apply -f k8s/service.yaml'
-                        
-                        // Restart deployment to pull latest image
-                        bat 'kubectl rollout restart deployment/rest-api-deployment -n %K8S_NAMESPACE%'
-                        
-                        // Wait for deployment
-                        bat 'kubectl rollout status deployment/rest-api-deployment -n %K8S_NAMESPACE% --timeout=5m'
+                            
+                            kubectl apply -f k8s/postgres-pvc.yaml
+                            kubectl apply -f k8s/postgres-deployment.yaml
+                            kubectl wait --for=condition=ready pod -l app=postgres -n ${K8S_NAMESPACE} --timeout=120s || true
+                            
+                            kubectl apply -f k8s/deployment.yaml
+                            kubectl apply -f k8s/service.yaml
+                            
+                            kubectl set image deployment/rest-api-deployment \
+                                rest-api=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                -n ${K8S_NAMESPACE}
+                            
+                            kubectl rollout status deployment/rest-api-deployment -n ${K8S_NAMESPACE} --timeout=5m
+                        '''
                     }
                 }
             }
         }
         
-        stage('Verify Deployment') {
+        stage('✅ Verify Deployment') {
             when {
                 branch 'main'
             }
             steps {
+                echo 'Verifying deployment...'
                 script {
-                    withKubeConfig([credentialsId: 'kubeconfig-jenkins.yaml']) {
-                        bat 'kubectl get pods -n %K8S_NAMESPACE%'
-                        bat 'kubectl get services -n %K8S_NAMESPACE%'
+                    withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
+                        sh '''
+                            export KUBECONFIG=${KUBECONFIG_FILE}
+                            echo ""
+                            echo "========================================"
+                            echo "   DEPLOYMENT STATUS"
+                            echo "========================================"
+                            echo ""
+                            echo "Pods:"
+                            kubectl get pods -n ${K8S_NAMESPACE}
+                            echo ""
+                            echo "Services:"
+                            kubectl get services -n ${K8S_NAMESPACE}
+                        '''
                     }
                 }
             }
@@ -125,14 +147,25 @@ pipeline {
     }
     
     post {
+        always {
+            echo 'Cleaning up Docker images...'
+            sh """
+                docker rmi ${env.DOCKER_HUB_USER}/${env.DOCKER_IMAGE}:${env.DOCKER_TAG} || true
+                docker rmi ${env.DOCKER_HUB_USER}/${env.DOCKER_IMAGE}:latest || true
+            """
+        }
         success {
-            echo '✅ Pipeline completed successfully!'
+            echo '========================================='
+            echo '   ✅ DEPLOYMENT SUCCESSFUL!'
+            echo '========================================='
+            echo "Build Number: ${env.BUILD_NUMBER}"
+            echo "Docker Image: ${env.DOCKER_HUB_USER}/${env.DOCKER_IMAGE}:${env.DOCKER_TAG}"
         }
         failure {
-            echo '❌ Pipeline failed!'
-        }
-        always {
-            cleanWs()
+            echo '========================================='
+            echo '   ❌ DEPLOYMENT FAILED!'
+            echo '========================================='
+            echo 'Check the logs above for details'
         }
     }
 }
