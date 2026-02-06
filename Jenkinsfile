@@ -17,7 +17,7 @@ pipeline {
     
     tools {
         // Utilise Node.js 18 (à configurer dans Jenkins)
-        nodejs 'NodeJS 18'
+        nodejs 'NodeJS 20'
     }
     
     stages {
