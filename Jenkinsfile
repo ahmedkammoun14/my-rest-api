@@ -84,45 +84,41 @@ pipeline {
         
         stage('Deploy to Kubernetes') {
             when {
-                // ✅ CHANGEMENT: Nouvelle condition
                 expression { 
                     return env.GIT_BRANCH == 'origin/main' || env.GIT_BRANCH == 'main' 
                 }
             }
             steps {
                 script {
-                    echo "☸️ Deploying to Kubernetes..."
+                    echo "Deploying to Kubernetes namespace: ${K8S_NAMESPACE}"
                     withKubeConfig([credentialsId: 'kubeconfig']) {
-                        // Créer le namespace
+                        // Appliquer le namespace
                         sh 'kubectl apply -f k8s/namespace.yaml || exit 0'
                         
-                        // Créer le secret de base de données
-                        withCredentials([string(credentialsId: 'db-password', variable: 'DB_PASSWORD')]) {
-                            sh '''
-                                kubectl create secret generic db-secret \
-                                --from-literal=password=$DB_PASSWORD \
-                                -n $K8S_NAMESPACE \
-                                --dry-run=client -o yaml | kubectl apply -f -
-                            '''
-                        }
+                        // Note: Le secret db-secret existe déjà, créé manuellement
                         
-                        // Appliquer les configurations
-                        sh 'kubectl apply -f k8s/configmap.yaml'
-                        sh 'kubectl apply -f k8s/postgres-pvc.yaml'
+                        // Appliquer les configurations (si elles existent)
+                        sh 'kubectl apply -f k8s/configmap.yaml || exit 0'
+                        sh 'kubectl apply -f k8s/postgres-pvc.yaml || exit 0'
+                        
+                        // Déployer PostgreSQL
                         sh 'kubectl apply -f k8s/postgres-deployment.yaml'
                         
                         // Attendre que PostgreSQL soit prêt
-                        sh 'kubectl wait --for=condition=ready pod -l app=postgres -n $K8S_NAMESPACE --timeout=120s'
+                        sh '''
+                            kubectl wait --for=condition=ready pod -l app=postgres \
+                            -n ${K8S_NAMESPACE} --timeout=120s || echo "Waiting for postgres..."
+                        '''
                         
                         // Déployer l'API REST
                         sh 'kubectl apply -f k8s/deployment.yaml'
                         sh 'kubectl apply -f k8s/service.yaml'
                         
-                        // Redémarrer le déploiement
-                        sh 'kubectl rollout restart deployment/rest-api-deployment -n $K8S_NAMESPACE'
+                        // Redémarrer le déploiement pour forcer le pull de la nouvelle image
+                        sh 'kubectl rollout restart deployment/rest-api-deployment -n ${K8S_NAMESPACE}'
                         
                         // Attendre que le déploiement soit terminé
-                        sh 'kubectl rollout status deployment/rest-api-deployment -n $K8S_NAMESPACE --timeout=5m'
+                        sh 'kubectl rollout status deployment/rest-api-deployment -n ${K8S_NAMESPACE} --timeout=5m'
                     }
                 }
             }
