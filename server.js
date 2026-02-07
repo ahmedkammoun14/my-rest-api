@@ -156,7 +156,7 @@ async function startServer() {
         console.log('✅ CI/CD pipeline is active!');
         console.log('✅ Kubernetes deployment is successful!');
         console.log('✅ Database connection established!');
-        console.log('✅ Jenkins Reussi ---------!');
+        console.log('✅ ------------Jenkins Reussi ---------!');
 
     });
 }
