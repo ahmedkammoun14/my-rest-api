@@ -15,11 +15,19 @@ spec:
       labels:
         app: rest-api
     spec:
-      # ✅ AJOUTER initContainers pour attendre PostgreSQL
+      # ✅ MODIFIER l'initContainer pour utiliser une méthode alternative
       initContainers:
       - name: wait-for-postgres
-        image: busybox:1.28
-        command: ['sh', '-c', 'until nc -z postgres-service 5432; do echo "Attente de postgres..."; sleep 2; done; echo "PostgreSQL est prêt!"']
+        image: postgres:15-alpine  # Utilise l'image postgres qui a pg_isready
+        command: 
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres-service -p 5432; do
+            echo "⏳ Attente de PostgreSQL..."
+            sleep 2
+          done
+          echo "✅ PostgreSQL est prêt!"
       
       containers:
       - name: rest-api
@@ -46,7 +54,7 @@ spec:
               name: db-secret
               key: password
         
-        # ✅ AJOUTER Readiness Probe
+        # ✅ Readiness Probe
         readinessProbe:
           httpGet:
             path: /ready
@@ -56,7 +64,7 @@ spec:
           timeoutSeconds: 3
           failureThreshold: 3
         
-        # ✅ AJOUTER Liveness Probe
+        # ✅ Liveness Probe
         livenessProbe:
           httpGet:
             path: /health
@@ -66,7 +74,7 @@ spec:
           timeoutSeconds: 3
           failureThreshold: 3
         
-        # ✅ AJOUTER Resource Limits
+        # ✅ Resource Limits
         resources:
           requests:
             memory: "128Mi"
