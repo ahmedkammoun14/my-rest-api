@@ -146,6 +146,7 @@ vite.config.ts.timestamp-*
 
 # Docker
 .dockerignore
-
+#jenkins
+jenkins.yaml
 # Kubernetes secrets (ne jamais commit de vrais secrets!)
 k8s/secret.yaml

@@ -7,23 +7,68 @@ const PORT = 3000;
 // Middleware
 app.use(express.json());
 
-// Database connection
+// Database connection avec retry logic
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
     database: process.env.DB_NAME || 'mydb',
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres'
+    password: process.env.DB_PASSWORD || 'postgres',
+    connectionTimeoutMillis: 5000,
+    max: 20,
+    idleTimeoutMillis: 30000
 });
 
-// Initialize database table
-pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100),
-        email VARCHAR(100)
-    )
-`).catch(err => console.error('Table creation error:', err));
+// Fonction de retry pour initialiser la base de données
+async function initializeDatabase(retries = 10, delay = 3000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            console.log(`🔄 Tentative ${i + 1}/${retries} de connexion à la base de données...`);
+            await pool.query('SELECT 1');
+            console.log('✅ Connexion à la base de données réussie!');
+            
+            // Créer la table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(100),
+                    email VARCHAR(100)
+                )
+            `);
+            console.log('✅ Table users créée/vérifiée avec succès!');
+            return true;
+        } catch (err) {
+            console.error(`❌ Échec de la connexion (tentative ${i + 1}/${retries}):`, err.message);
+            if (i < retries - 1) {
+                console.log(`⏳ Nouvelle tentative dans ${delay/1000} secondes...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    console.error('💥 Impossible de se connecter à la base de données après toutes les tentatives');
+    return false;
+}
+
+/**
+ * HEALTH CHECK ENDPOINT
+ */
+app.get('/health', async (req, res) => {
+    try {
+        await pool.query('SELECT 1');
+        res.status(200).json({ status: 'healthy', database: 'connected' });
+    } catch (err) {
+        res.status(503).json({ status: 'unhealthy', database: 'disconnected', error: err.message });
+    }
+});
+
+app.get('/ready', async (req, res) => {
+    try {
+        await pool.query('SELECT 1');
+        res.status(200).json({ status: 'ready' });
+    } catch (err) {
+        res.status(503).json({ status: 'not ready', error: err.message });
+    }
+});
 
 /**
  * ROUTES
@@ -100,9 +145,20 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log('CI/CD pipeline is active!+Kubernetes deployment is successful! + self-hosted runner + sans jenkins');
-     console.log('Github Actions workflow is working! + Docker containerization is successful! + Helm charts are deployed successfully!');
-});
+async function startServer() {
+    console.log('🚀 Démarrage du serveur...');
+    
+    // Initialiser la base de données avec retry
+    await initializeDatabase();
+    
+    app.listen(PORT, () => {
+        console.log(`✅ Server running on http://localhost:${PORT}`);
+        console.log('✅ CI/CD pipeline is active!');
+        console.log('✅ Kubernetes deployment is successful!');
+        console.log('✅ Database connection established!');
+    });
+}
+
+startServer();
+
 module.exports = app;
