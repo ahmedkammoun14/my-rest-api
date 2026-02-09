@@ -150,3 +150,5 @@ vite.config.ts.timestamp-*
 jenkins.yaml
 # Kubernetes secrets (ne jamais commit de vrais secrets!)
 k8s/secret.yaml
+
+jenkins/kubeconfig
