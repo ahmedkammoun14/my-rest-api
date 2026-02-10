@@ -157,6 +157,7 @@ async function startServer() {
         console.log('✅ Kubernetes deployment is successful!');
         console.log('✅ Database connection established!');
         console.log('✅ --------de----Jenkins Reussi ---xxx--hhh----!');
+        console.log('✅ --------ALL WORKS GOOD ----!');
 
     });
 }
